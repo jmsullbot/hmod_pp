@@ -27,7 +27,7 @@ import matplotlib.gridspec as gridspec
 import camb
 
 from linear_power_spectrum import get_cosmology_dict, PLANCK18, get_camb_results
-from halo_model import load_linear_pk, Cosmology, HaloModel, gaussian_dndM_extra
+from halo_model import load_linear_pk, Cosmology, HaloModel, gaussian_dndM_extra, tinker10_dndM
 from cmb_lensing import cl_kappakappa, make_delta_pk_callable
 
 # -------------------------------------------------------------------------
@@ -146,6 +146,62 @@ with np.errstate(divide='ignore', invalid='ignore'):
 ell_camb_plot = ell_camb[2:]
 CL_camb_kk_plot = CL_camb_kk[2:]
 print(f"  CAMB C_L^kk at L=100: {CL_camb_kk[100]:.3e}")
+
+# -------------------------------------------------------------------------
+# 3b. CAMB HaloFit P(k) at z=0
+# -------------------------------------------------------------------------
+print("Computing CAMB HaloFit P(k)...")
+cp_hf = camb.CAMBparams()
+cp_hf.set_cosmology(H0=PLANCK18["H0"], ombh2=PLANCK18["ombh2"],
+                    omch2=PLANCK18["omch2"], tau=PLANCK18["tau"],
+                    mnu=PLANCK18["mnu"], nnu=PLANCK18["nnu"])
+cp_hf.InitPower.set_params(ns=PLANCK18["ns"], As=PLANCK18["As"])
+cp_hf.set_matter_power(redshifts=[0.0], kmax=50.0, nonlinear=True)
+camb_hf = camb.get_results(cp_hf)
+kh_hf, _, pk_hf_2d = camb_hf.get_matter_power_spectrum(
+    minkh=1e-4, maxkh=50.0, npoints=400)
+pk_halofit_z0 = pk_hf_2d[0]   # shape (400,), z=0, units (Mpc/h)^3
+print(f"  HaloFit P(k) at k=1 h/Mpc: {np.interp(1.0, kh_hf, pk_halofit_z0):.3e} (Mpc/h)^3")
+
+# -------------------------------------------------------------------------
+# 3c. P(k) at z=8.2 – base halo model and modified halo model
+# -------------------------------------------------------------------------
+z_peak = GAUSS_PARAMS['z0']
+Dz_peak = cosmo.growth_factor(z_peak)
+D0      = cosmo.growth_factor(0.0)
+growth_sq_82 = (Dz_peak / D0)**2
+
+pk_lin_z82     = pk_spline(k_hm) * growth_sq_82
+pk_hm_z82      = pk_hm_arr * growth_sq_82
+delta_pk_z82   = delta_pk_fn(k_hm, np.full(len(k_hm), z_peak))
+pk_hm_mod_z82  = pk_hm_z82 + delta_pk_z82
+print(f"  ΔP(k,z=8.2) peak: {delta_pk_z82.max():.3e} (Mpc/h)^3 "
+      f"at k={k_hm[delta_pk_z82.argmax()]:.3f} h/Mpc")
+
+# -------------------------------------------------------------------------
+# 3d. HMF as a function of M at z=8.2 and as a function of z at M=1e11
+# -------------------------------------------------------------------------
+print("Computing HMF curves...")
+M_hmf = np.geomspace(1e8, 1e16, 120)
+dndM_tinker_z82 = tinker10_dndM(M_hmf, pk_spline, cosmo, z=z_peak)
+dndM_gauss_z82  = gaussian_dndM_extra(M_hmf, z_peak, **GAUSS_PARAMS)
+dndM_mod_z82    = dndM_tinker_z82 + dndM_gauss_z82
+
+# HMF vs z at M=1e11 M_sun/h
+M_fixed  = 1e11
+z_hmf    = np.linspace(0.02, 15.0, 80)
+dndM_tinker_vz = np.array([
+    float(tinker10_dndM(np.array([M_fixed]), pk_spline, cosmo, z=z))
+    for z in z_hmf])
+# Gaussian factor: vectorise analytically (z is the varying axis)
+_lM = np.log10(M_fixed)
+_gauss_M_fac = np.exp(-0.5 * ((_lM - GAUSS_PARAMS['logM0'])
+                               / GAUSS_PARAMS['sigma_logM'])**2)
+dndM_gauss_vz = (GAUSS_PARAMS['A'] * _gauss_M_fac
+                 * np.exp(-0.5 * ((z_hmf - GAUSS_PARAMS['z0'])
+                                  / GAUSS_PARAMS['sigma_z'])**2)
+                 / (M_fixed * np.log(10.0)))
+dndM_mod_vz = dndM_tinker_vz + dndM_gauss_vz
 
 # -------------------------------------------------------------------------
 # 4. Load Planck 2018 lensing bandpowers
@@ -292,41 +348,107 @@ plt.savefig("cmb_lensing_comparison.png", dpi=150, bbox_inches='tight')
 print("Saved cmb_lensing_comparison.pdf and cmb_lensing_comparison.png")
 
 # -------------------------------------------------------------------------
-# 6. Also plot P(k) for reference
+# 6. P(k) comparison: 3-panel figure
 # -------------------------------------------------------------------------
-fig2, axes = plt.subplots(1, 2, figsize=(14, 5))
+fig2, axes2 = plt.subplots(1, 3, figsize=(20, 6))
+ax_p0, ax_p82, ax_rat = axes2
 
-ax1, ax2 = axes
-
-# P(k) comparison
-ax1.loglog(k_hm, pk_arr[np.searchsorted(k_arr, k_hm)] if len(k_arr) > len(k_hm) else pk_spline(k_hm),
-           'k', lw=2, label='Linear P(k)')
-ax1.loglog(k_hm, pk2h_arr, 'b--', lw=1.5, label='2-halo P(k)')
-ax1.loglog(k_hm, pk1h_arr, 'r:', lw=1.5, label='1-halo P(k)')
-ax1.loglog(k_hm, pk_hm_arr, 'firebrick', lw=2.5, label='Total halo model P(k)')
-ax1.set_xlabel(r'$k$ [$h$/Mpc]', fontsize=12)
-ax1.set_ylabel(r'$P(k)$ [$(Mpc/h)^3$]', fontsize=12)
-ax1.set_xlim(1e-3, 50)
-ax1.legend(fontsize=10)
-ax1.set_title('Matter Power Spectrum', fontsize=12)
-ax1.grid(True, alpha=0.3)
-
-# Ratio P(k)_hm / P(k)_lin
 pk_lin_at_khm = pk_spline(k_hm)
-ax2.semilogx(k_hm, pk_hm_arr / pk_lin_at_khm, 'firebrick', lw=2.5, label='Total / Linear')
-ax2.semilogx(k_hm, pk2h_arr / pk_lin_at_khm, 'b--', lw=1.5, label='2-halo / Linear')
-ax2.axhline(1.0, color='k', ls='-', lw=1)
-ax2.axvline(0.05, color='gray', ls='--', lw=1, alpha=0.7, label='k=0.05 h/Mpc')
-ax2.set_xlabel(r'$k$ [$h$/Mpc]', fontsize=12)
-ax2.set_ylabel(r'$P_{HM}(k) / P_{lin}(k)$', fontsize=12)
-ax2.set_xlim(1e-3, 50)
-ax2.set_ylim(0, 5)
-ax2.legend(fontsize=10)
-ax2.set_title('Halo Model / Linear Theory Boost', fontsize=12)
-ax2.grid(True, alpha=0.3)
 
-plt.tight_layout()
-plt.savefig("power_spectrum_comparison.pdf", dpi=150, bbox_inches='tight')
-plt.savefig("power_spectrum_comparison.png", dpi=150, bbox_inches='tight')
+# --- Panel 0: P(k) at z=0 ---
+ax_p0.loglog(k_hm, pk_lin_at_khm,   'k',         lw=2,   label='Linear')
+ax_p0.loglog(kh_hf, pk_halofit_z0,  'forestgreen', lw=2, ls='--', label='HaloFit (CAMB)')
+ax_p0.loglog(k_hm, pk2h_arr,        'steelblue',  lw=1.5, ls=':',  label='2-halo')
+ax_p0.loglog(k_hm, pk1h_arr,        'tomato',     lw=1.5, ls=':',  label='1-halo')
+ax_p0.loglog(k_hm, pk_hm_arr,       'firebrick',  lw=2.5,          label='Halo model total')
+ax_p0.set_xlabel(r'$k$ [$h$/Mpc]', fontsize=12)
+ax_p0.set_ylabel(r'$P(k,z{=}0)$ [$({\rm Mpc}/h)^3$]', fontsize=12)
+ax_p0.set_xlim(1e-3, 50)
+ax_p0.set_ylim(1e0, 1e5)
+ax_p0.legend(fontsize=10)
+ax_p0.set_title('Matter Power Spectrum at $z=0$', fontsize=12)
+ax_p0.grid(True, alpha=0.3)
+
+# --- Panel 1: P(k) at z=8.2 ---
+ax_p82.loglog(k_hm, pk_lin_z82,    'k',          lw=2,   label='Linear (growth rescaled)')
+ax_p82.loglog(k_hm, pk_hm_z82,     'firebrick',  lw=2.5,          label='Halo model')
+ax_p82.loglog(k_hm, pk_hm_mod_z82, 'darkorchid', lw=2.5, ls='-.',
+              label='Halo model + Gaussian HMF mod')
+ax_p82.loglog(k_hm, delta_pk_z82,  'darkorchid', lw=1.5, ls=':',
+              label=r'$\Delta P_{1h}$ (extra only)')
+ax_p82.set_xlabel(r'$k$ [$h$/Mpc]', fontsize=12)
+ax_p82.set_ylabel(r'$P(k,z{=}8.2)$ [$({\rm Mpc}/h)^3$]', fontsize=12)
+ax_p82.set_xlim(1e-3, 50)
+ax_p82.legend(fontsize=10)
+ax_p82.set_title(fr'Matter Power Spectrum at $z={z_peak}$'
+                 '\n(Gaussian HMF modification)', fontsize=12)
+ax_p82.grid(True, alpha=0.3)
+
+# --- Panel 2: Boost P/P_lin at z=0 ---
+# interpolate halofit onto k_hm grid
+pk_hf_at_khm = np.interp(k_hm, kh_hf, pk_halofit_z0)
+ax_rat.semilogx(k_hm, pk_hf_at_khm    / pk_lin_at_khm, 'forestgreen', lw=2,   ls='--',
+                label='HaloFit / Linear')
+ax_rat.semilogx(k_hm, pk_hm_arr       / pk_lin_at_khm, 'firebrick',   lw=2.5,
+                label='Halo model / Linear')
+ax_rat.semilogx(k_hm, pk2h_arr        / pk_lin_at_khm, 'steelblue',   lw=1.5, ls=':',
+                label='2-halo / Linear')
+ax_rat.axhline(1.0, color='k', lw=1)
+ax_rat.set_xlabel(r'$k$ [$h$/Mpc]', fontsize=12)
+ax_rat.set_ylabel(r'$P(k) / P_{\rm lin}(k)$', fontsize=12)
+ax_rat.set_xlim(1e-3, 50)
+ax_rat.set_ylim(0, 8)
+ax_rat.legend(fontsize=10)
+ax_rat.set_title('Nonlinear Boost at $z=0$', fontsize=12)
+ax_rat.grid(True, alpha=0.3)
+
+fig2.tight_layout()
+fig2.savefig("power_spectrum_comparison.pdf", dpi=150, bbox_inches='tight')
+fig2.savefig("power_spectrum_comparison.png", dpi=150, bbox_inches='tight')
 print("Saved power_spectrum_comparison.pdf and power_spectrum_comparison.png")
+
+# -------------------------------------------------------------------------
+# 7. HMF comparison: dn/dM vs M and dn/dM vs z
+# -------------------------------------------------------------------------
+fig3, axes3 = plt.subplots(1, 2, figsize=(14, 5))
+ax_hm, ax_hz = axes3
+
+# --- Panel 0: HMF vs M at z=8.2 ---
+ax_hm.loglog(M_hmf, dndM_tinker_z82, 'firebrick',  lw=2.5,
+             label=fr'Tinker 2010, $z={z_peak}$')
+ax_hm.loglog(M_hmf, dndM_gauss_z82,  'darkorchid', lw=2, ls=':',
+             label=fr'Gaussian extra, $z={z_peak}$')
+ax_hm.loglog(M_hmf, dndM_mod_z82,    'darkorchid', lw=2.5, ls='-.',
+             label=fr'Tinker + Gaussian, $z={z_peak}$')
+ax_hm.set_xlabel(r'$M_h$ [$M_\odot/h$]', fontsize=12)
+ax_hm.set_ylabel(r'$dn/dM$ [$({\rm Mpc}/h)^{-3}\,(M_\odot/h)^{-1}$]', fontsize=12)
+ax_hm.set_xlim(1e8, 1e16)
+ax_hm.legend(fontsize=10)
+_gp = GAUSS_PARAMS
+ax_hm.set_title(fr'HMF at $z={z_peak}$: '
+                fr'$A={_gp["A"]}$, $\log M_0={_gp["logM0"]}$, '
+                fr'$\sigma_{{\log M}}={_gp["sigma_logM"]}$',
+                fontsize=11)
+ax_hm.grid(True, alpha=0.3)
+
+# --- Panel 1: HMF vs z at M=1e11 M_sun/h ---
+ax_hz.semilogy(z_hmf, dndM_tinker_vz, 'firebrick',  lw=2.5,
+               label=r'Tinker 2010, $M_h=10^{11}\,M_\odot/h$')
+ax_hz.semilogy(z_hmf, dndM_gauss_vz,  'darkorchid', lw=2, ls=':',
+               label=r'Gaussian extra, $M_h=10^{11}\,M_\odot/h$')
+ax_hz.semilogy(z_hmf, dndM_mod_vz,    'darkorchid', lw=2.5, ls='-.',
+               label=r'Tinker + Gaussian, $M_h=10^{11}\,M_\odot/h$')
+ax_hz.set_xlabel(r'Redshift $z$', fontsize=12)
+ax_hz.set_ylabel(r'$dn/dM$ [$({\rm Mpc}/h)^{-3}\,(M_\odot/h)^{-1}$]', fontsize=12)
+ax_hz.set_xlim(0, 15)
+ax_hz.legend(fontsize=10)
+ax_hz.set_title(fr'HMF vs $z$ at $M_h=10^{{11}}\,M_\odot/h$: '
+                fr'$z_0={_gp["z0"]}$, $\sigma_z={_gp["sigma_z"]}$',
+                fontsize=11)
+ax_hz.grid(True, alpha=0.3)
+
+fig3.tight_layout()
+fig3.savefig("hmf_comparison.pdf", dpi=150, bbox_inches='tight')
+fig3.savefig("hmf_comparison.png", dpi=150, bbox_inches='tight')
+print("Saved hmf_comparison.pdf and hmf_comparison.png")
 print("\nDone!")
