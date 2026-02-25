@@ -289,10 +289,14 @@ def tinker10_dndM(M, pk_spline, cosmo, z=0.0, Delta=200):
     dndM : float or array  [(Mpc/h)^{-3} (M_sun/h)^{-1}]
     """
     M = np.atleast_1d(np.asarray(M, dtype=float))
-    rho_mz = cosmo.rho_m(z)
+    # Tinker 2010 uses the comoving mean matter density (rho_m0 = const) for
+    # both the Lagrangian radius and the dn/dM prefactor.  Using rho_m(z) here
+    # would introduce a spurious (1+z)^3 factor that makes dn/dM *increase*
+    # with z at fixed M, which is unphysical.
+    rho_m0 = cosmo.rho_m0
     Dz = cosmo.growth_factor(z)
 
-    R = mass_to_radius(M, rho_mz)
+    R = mass_to_radius(M, rho_m0)
     # sigma^2 uses the z=0 linear P(k); growth factor scales it
     sig2_R = sigma_sq(R, pk_spline) * Dz**2
     sigma_R = np.sqrt(sig2_R)
@@ -302,13 +306,13 @@ def tinker10_dndM(M, pk_spline, cosmo, z=0.0, Delta=200):
     # Numerical derivative d ln(sigma^{-1}) / dM = -1/(2 sigma^2) * d(sigma^2)/dM
     # Use finite difference
     dM = M * 1e-4
-    sig2_plus  = sigma_sq(mass_to_radius(M + dM, rho_mz), pk_spline) * Dz**2
-    sig2_minus = sigma_sq(mass_to_radius(M - dM, rho_mz), pk_spline) * Dz**2
+    sig2_plus  = sigma_sq(mass_to_radius(M + dM, rho_m0), pk_spline) * Dz**2
+    sig2_minus = sigma_sq(mass_to_radius(M - dM, rho_m0), pk_spline) * Dz**2
     dsig2_dM = (sig2_plus - sig2_minus) / (2 * dM)
 
     dlninvsigma_dM = -dsig2_dM / (2 * sig2_R)
 
-    dndM = (rho_mz / M) * f * np.abs(dlninvsigma_dM)
+    dndM = (rho_m0 / M) * f * np.abs(dlninvsigma_dM)
     return dndM.squeeze() if dndM.size == 1 else dndM
 
 
@@ -353,9 +357,8 @@ def tinker10_bias(M, pk_spline, cosmo, z=0.0, Delta=200):
     M = np.atleast_1d(np.asarray(M, dtype=float))
     delta_c = 1.686  # critical overdensity for collapse (EdS approximation)
 
-    rho_mz = cosmo.rho_m(z)
     Dz = cosmo.growth_factor(z)
-    R = mass_to_radius(M, rho_mz)
+    R = mass_to_radius(M, cosmo.rho_m0)   # comoving Lagrangian radius
     sigma_R = np.sqrt(sigma_sq(R, pk_spline) * Dz**2)
     nu = delta_c / sigma_R
 
