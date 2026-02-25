@@ -655,3 +655,59 @@ class HaloModel:
             return np.exp(_sp(np.log(k)))
 
         return spline, k_arr, pk_arr
+
+
+# ---------------------------------------------------------------------------
+# Modified HMF: extra Gaussian component
+# ---------------------------------------------------------------------------
+
+def gaussian_dndM_extra(M, z,
+                         A=0.3,
+                         logM0=13.5,
+                         sigma_logM=0.5,
+                         z0=1.0,
+                         sigma_z=0.3):
+    """
+    Extra contribution to the halo mass function: bivariate Gaussian in
+    (z, log10 M_h), to be added to the Tinker 2010 HMF.
+
+    The total modified HMF is:
+        dn_total/dM = dn_Tinker/dM + dn_extra/dM
+
+    The extra term is parameterised as an unnormalised bivariate Gaussian:
+
+        dn_extra/dM(M, z) = A * G(log10 M; logM0, sigma_logM)
+                              * G(z; z0, sigma_z)
+                              / (M * ln 10)
+
+    where G(x; mu, sigma) = exp(-0.5 * ((x - mu) / sigma)^2), and the
+    factor 1/(M * ln10) converts from per-log10-M to per-M.
+
+    A has units of (Mpc/h)^{-3}, representing the peak amplitude of the
+    number density per unit log10(M) per unit redshift.
+
+    Parameters
+    ----------
+    M : float or array  [M_sun/h]
+    z : float
+    A : float
+        Peak amplitude [(Mpc/h)^{-3}].
+    logM0 : float
+        Central log10(M_h / (M_sun/h)).
+    sigma_logM : float
+        Width in log10(M) [dex].
+    z0 : float
+        Central redshift.
+    sigma_z : float
+        Width in redshift.
+
+    Returns
+    -------
+    dndM_extra : float or array  [(Mpc/h)^{-3} (M_sun/h)^{-1}]
+    """
+    M = np.atleast_1d(np.asarray(M, dtype=float))
+    logM = np.log10(M)
+    G_logM = np.exp(-0.5 * ((logM - logM0) / sigma_logM)**2)
+    G_z    = np.exp(-0.5 * ((z    - z0)    / sigma_z)**2)
+    result = A * G_logM * G_z / (M * np.log(10))
+    return result.squeeze() if result.size == 1 else result
