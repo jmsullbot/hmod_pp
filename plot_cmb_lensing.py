@@ -67,11 +67,11 @@ ell_arr = np.unique(np.concatenate([
 ]))
 
 # Halo model C_L
-CL_hm = cl_kappakappa(ell_arr, pk_hm_spline, cosmo, z_max=5.0, n_chi=300)
+CL_hm = cl_kappakappa(ell_arr, pk_hm_spline, cosmo, z_max=100.0, n_chi=500)
 print(f"  Halo model C_L range: {CL_hm.min():.3e} – {CL_hm.max():.3e}")
 
 # Linear theory C_L
-CL_lin = cl_kappakappa(ell_arr, pk_spline, cosmo, z_max=5.0, n_chi=300)
+CL_lin = cl_kappakappa(ell_arr, pk_spline, cosmo, z_max=100.0, n_chi=500)
 print(f"  Linear C_L range: {CL_lin.min():.3e} – {CL_lin.max():.3e}")
 
 # -------------------------------------------------------------------------
@@ -102,7 +102,7 @@ delta_pk_fn, delta_pk_grid, k_dpk, z_dpk = make_delta_pk_callable(
 print(f"  ΔP grid peak: {delta_pk_grid.max():.3e} (Mpc/h)^3 "
       f"at k={k_dpk[delta_pk_grid.max(axis=1).argmax()]:.2f} h/Mpc")
 
-CL_hm_mod = cl_kappakappa(ell_arr, pk_hm_spline, cosmo, z_max=10.0, n_chi=400,
+CL_hm_mod = cl_kappakappa(ell_arr, pk_hm_spline, cosmo, z_max=100.0, n_chi=500,
                            delta_pk_fn=delta_pk_fn)
 print(f"  Modified halo model C_L range: {CL_hm_mod.min():.3e} – {CL_hm_mod.max():.3e}")
 
@@ -146,23 +146,16 @@ print(f"  CAMB C_L^kk at L=100: {CL_camb_kk[100]:.3e}")
 print("Loading Planck 2018 lensing bandpowers...")
 try:
     bp_data = np.loadtxt("planck2018_lensing_aggressive_bandpowers.dat", comments="#")
-    # Columns: bin, L_min, L_max, L_av, PP (C_L^phiphi), Error, Ahat
+    # Columns: bin, L_min, L_max, L_av, PP (C_L^kappakappa), Error, Ahat
+    # The PP column already stores C_L^{kappakappa} directly.
     L_eff = bp_data[:, 3]
-    C_phi_phi = bp_data[:, 4]        # C_L^{phiphi}
-    sigma_phi_phi = bp_data[:, 5]    # 1-sigma error on C_L^{phiphi}
+    C_kk_planck   = bp_data[:, 4]   # C_L^{kappakappa}  [dimensionless]
+    sigma_kk_planck = bp_data[:, 5] # 1-sigma error on C_L^{kappakappa}
 
-    # Convert phi -> kappa
-    # C_L^{kappakappa} = [L(L+1)/2]^2 * C_L^{phiphi}
-    factor = (L_eff * (L_eff + 1) / 2.0)**2
-    C_kk_planck = factor * C_phi_phi
-    sigma_kk_planck = factor * sigma_phi_phi
-
-    # Load covariance matrix
+    # Load covariance matrix (already in C_L^{kk} units)
     cov_raw = np.loadtxt("planck2018_lensing_aggressive_cov.dat")
     n_bins = len(L_eff)
-    cov_phi = cov_raw.reshape(n_bins, n_bins)
-    # Convert covariance to kappa-kappa
-    cov_kk = np.outer(factor, factor) * cov_phi
+    cov_kk = cov_raw.reshape(n_bins, n_bins)
     print(f"  Loaded {n_bins} Planck bandpowers, L=[{L_eff[0]:.0f}, {L_eff[-1]:.0f}]")
     planck_ok = True
 except FileNotFoundError:
@@ -178,10 +171,11 @@ gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1], hspace=0.05)
 ax_main = fig.add_subplot(gs[0])
 ax_ratio = fig.add_subplot(gs[1], sharex=ax_main)
 
-# Scaling factor for better visualization: L^2(L+1)^2/(2pi) * C_L^kk
-# (= "lensing potential" convention * (L(L+1)/2)^2)
+# Standard Planck lensing convention:
+#   [L(L+1)]^2/(2pi) * C_L^{phiphi}  =  (2/pi) * C_L^{kappakappa}
+# (uses C_L^{kk} = [L(L+1)/2]^2 * C_L^{phiphi})
 def scale_cl(ell, cl):
-    return ell**2 * (ell + 1)**2 / (2 * np.pi) * cl
+    return (2.0 / np.pi) * cl
 
 ell_plot = ell_arr.astype(float)
 
@@ -232,8 +226,10 @@ ax_main.set_yscale('log')
 ax_main.set_xlim(8, 2100)
 ax_main.set_ylim(1e-3, 1e1)
 ax_main.set_ylabel(
-    r'$\frac{L^2(L+1)^2}{2\pi}\,C_L^{\kappa\kappa}\;\times\;10^7$',
-    fontsize=13
+    r'$\frac{[L(L+1)]^2}{2\pi}\,C_L^{\phi\phi}\;\times\;10^7$'
+    '\n'
+    r'$= \frac{2}{\pi}\,C_L^{\kappa\kappa}\;\times\;10^7$',
+    fontsize=11
 )
 ax_main.legend(fontsize=11, loc='lower left')
 gauss_label = (fr"Gaussian mod: $A={GAUSS_PARAMS['A']}$, "
