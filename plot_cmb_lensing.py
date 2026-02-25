@@ -423,6 +423,7 @@ ax_hm.loglog(M_hmf, dndM_mod_z82,    'darkorchid', lw=2.5, ls='-.',
 ax_hm.set_xlabel(r'$M_h$ [$M_\odot/h$]', fontsize=12)
 ax_hm.set_ylabel(r'$dn/dM$ [$({\rm Mpc}/h)^{-3}\,(M_\odot/h)^{-1}$]', fontsize=12)
 ax_hm.set_xlim(1e8, 1e16)
+ax_hm.set_ylim(1e-18, 1e-5)
 ax_hm.legend(fontsize=10)
 _gp = GAUSS_PARAMS
 ax_hm.set_title(fr'HMF at $z={z_peak}$: '
@@ -441,6 +442,7 @@ ax_hz.semilogy(z_hmf, dndM_mod_vz,    'darkorchid', lw=2.5, ls='-.',
 ax_hz.set_xlabel(r'Redshift $z$', fontsize=12)
 ax_hz.set_ylabel(r'$dn/dM$ [$({\rm Mpc}/h)^{-3}\,(M_\odot/h)^{-1}$]', fontsize=12)
 ax_hz.set_xlim(0, 15)
+ax_hz.set_ylim(1e-18, 1e-9)
 ax_hz.legend(fontsize=10)
 ax_hz.set_title(fr'HMF vs $z$ at $M_h=10^{{11}}\,M_\odot/h$: '
                 fr'$z_0={_gp["z0"]}$, $\sigma_z={_gp["sigma_z"]}$',
