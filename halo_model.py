@@ -655,3 +655,29 @@ class HaloModel:
             return np.exp(_sp(np.log(k)))
 
         return spline, k_arr, pk_arr
+
+
+def gaussian_dndM_extra(M, z, A=0.3, logM0=11.0, sigma_logM=1.0,
+                        z0=8.2, sigma_z=0.43):
+    """
+    Extra HMF component: bivariate Gaussian in (log10 M, z).
+
+        dn_extra/dM(M, z) = A * exp[-0.5*((log10M - logM0)/sigma_logM)^2]
+                              * exp[-0.5*((z - z0)/sigma_z)^2]
+                              / (M * ln10)
+
+    Parameters
+    ----------
+    M : array  [M_sun/h]
+    z : float
+    A, logM0, sigma_logM, z0, sigma_z : Gaussian parameters
+
+    Returns
+    -------
+    dn_extra/dM : array  [(Mpc/h)^{-3} (M_sun/h)^{-1}]
+    """
+    M = np.atleast_1d(np.asarray(M, dtype=float))
+    logM = np.log10(M)
+    gauss_M = np.exp(-0.5 * ((logM - logM0) / sigma_logM)**2)
+    gauss_z = np.exp(-0.5 * ((z - z0) / sigma_z)**2)
+    return A * gauss_M * gauss_z / (M * np.log(10.0))

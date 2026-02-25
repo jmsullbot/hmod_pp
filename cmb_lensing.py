@@ -69,7 +69,8 @@ def cmb_lensing_kernel(chi, chi_star, cosmo):
 
 
 def cl_kappakappa(ell, halo_model_pk_spline, cosmo,
-                  z_max=5.0, n_chi=300, z_star=1100.0):
+                  z_max=5.0, n_chi=300, z_star=1100.0,
+                  delta_pk_fn=None):
     """
     CMB lensing convergence power spectrum C_L^{kappa kappa} via Limber integral.
 
@@ -95,6 +96,11 @@ def cl_kappakappa(ell, halo_model_pk_spline, cosmo,
         Number of integration steps in comoving distance.
     z_star : float
         Redshift of last scattering.
+    delta_pk_fn : callable or None
+        Optional extra power spectrum contribution from a modified HMF,
+        with signature delta_pk_fn(k_arr, z_arr) -> array of shape len(k_arr).
+        This is added to P_hm(k)*D(z)^2 at each z in the integral.
+        Built by make_delta_pk_callable().
 
     Returns
     -------
@@ -145,6 +151,10 @@ def cl_kappakappa(ell, halo_model_pk_spline, cosmo,
 
         Pk_v = halo_model_pk_spline(k_v) * (Dz_v / D0)**2
 
+        # Add extra power from modified HMF (already carries its own z-dependence)
+        if delta_pk_fn is not None:
+            Pk_v = Pk_v + delta_pk_fn(k_v, z_v)
+
         # integrand in dz: [W(chi)]^2 / chi^2 * P(k) * dchi/dz
         integrand = W_v**2 / chi_v**2 * Pk_v * dchi_dz_v
 
@@ -161,3 +171,75 @@ def cl_kappakappa_linear(ell, pk_lin_spline, cosmo,
     """
     return cl_kappakappa(ell, pk_lin_spline, cosmo,
                          z_max=z_max, n_chi=n_chi, z_star=z_star)
+
+
+def make_delta_pk_callable(dndM_extra_fn, cosmo,
+                           k_lo=5e-3, k_hi=50.0, n_k=60,
+                           z_lo=0.02, z_max=5.0, n_z=50,
+                           M_lo=1e10, M_hi=1e16, n_M=60):
+    """
+    Precompute the extra 1-halo power ΔP(k,z) on a (k, z) grid arising
+    from an additional HMF component, then return a fast interpolating callable.
+
+    The extra power is the 1-halo contribution only:
+
+        ΔP_1h(k, z) = ∫ dM (dn_extra/dM)(M, z) * (M / rho_m(z))^2 * |u(k|M,z)|^2
+
+    Parameters
+    ----------
+    dndM_extra_fn : callable
+        Signature: dndM_extra_fn(M_arr, z) -> array [(Mpc/h)^{-3} (M_sun/h)^{-1}].
+    cosmo : Cosmology
+    k_lo, k_hi : float
+        k grid range [h/Mpc].
+    n_k : int
+        Number of k points.
+    z_lo, z_max : float
+        Redshift grid range.
+    n_z : int
+        Number of z points.
+    M_lo, M_hi : float
+        Halo mass integration limits [M_sun/h].
+    n_M : int
+        Number of mass points.
+
+    Returns
+    -------
+    delta_pk_fn : callable
+        delta_pk_fn(k_arr, z_arr) -> array of ΔP values, one per element.
+    delta_pk_grid : 2-D array, shape (n_k, n_z)
+        Raw precomputed grid [(Mpc/h)^3].
+    k_grid, z_grid : 1-D arrays
+    """
+    from halo_model import nfw_fourier
+    from scipy.interpolate import RegularGridInterpolator
+
+    k_grid = np.geomspace(k_lo, k_hi, n_k)
+    z_grid = np.linspace(z_lo, z_max, n_z)
+    M_arr  = np.geomspace(M_lo, M_hi, n_M)
+
+    delta_pk_grid = np.zeros((n_k, n_z))
+
+    for j, z in enumerate(z_grid):
+        rho_m = cosmo.rho_m(z)
+        dndM_extra = dndM_extra_fn(M_arr, z)
+        for i, k in enumerate(k_grid):
+            u_arr = nfw_fourier(k, M_arr, z=z, cosmo=cosmo)
+            integrand = dndM_extra * (M_arr / rho_m)**2 * u_arr**2
+            delta_pk_grid[i, j] = np.trapezoid(integrand, M_arr)
+
+    interp = RegularGridInterpolator(
+        (np.log(k_grid), z_grid),
+        delta_pk_grid,
+        method='linear',
+        bounds_error=False,
+        fill_value=0.0,
+    )
+
+    def delta_pk_fn(k_arr, z_arr):
+        k_arr = np.atleast_1d(np.asarray(k_arr, dtype=float))
+        z_arr = np.atleast_1d(np.asarray(z_arr, dtype=float))
+        pts = np.column_stack([np.log(k_arr), z_arr])
+        return np.maximum(interp(pts), 0.0)
+
+    return delta_pk_fn, delta_pk_grid, k_grid, z_grid

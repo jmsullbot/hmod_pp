@@ -27,8 +27,8 @@ import matplotlib.gridspec as gridspec
 import camb
 
 from linear_power_spectrum import get_cosmology_dict, PLANCK18, get_camb_results
-from halo_model import load_linear_pk, Cosmology, HaloModel
-from cmb_lensing import cl_kappakappa
+from halo_model import load_linear_pk, Cosmology, HaloModel, gaussian_dndM_extra
+from cmb_lensing import cl_kappakappa, make_delta_pk_callable
 
 # -------------------------------------------------------------------------
 # 1. Setup cosmology and build halo model
@@ -73,6 +73,38 @@ print(f"  Halo model C_L range: {CL_hm.min():.3e} – {CL_hm.max():.3e}")
 # Linear theory C_L
 CL_lin = cl_kappakappa(ell_arr, pk_spline, cosmo, z_max=5.0, n_chi=300)
 print(f"  Linear C_L range: {CL_lin.min():.3e} – {CL_lin.max():.3e}")
+
+# -------------------------------------------------------------------------
+# 2b. Modified HMF: Tinker + bivariate Gaussian in (log10 M, z)
+# -------------------------------------------------------------------------
+# Gaussian parameters centred on the high-z, low-mass population
+GAUSS_PARAMS = dict(
+    A         = 0.3,    # peak amplitude [(Mpc/h)^{-3}] per unit log10M per unit z
+    logM0     = 11.0,   # central log10(M_h / (M_sun/h))
+    sigma_logM= 1.0,    # width in log10(M) [dex]
+    z0        = 8.2,    # central redshift
+    sigma_z   = 0.43,   # width in z
+)
+print("Precomputing extra 1-halo power from Gaussian HMF modification...")
+print(f"  Gaussian params: {GAUSS_PARAMS}")
+
+def dndM_extra_fn(M_arr, z):
+    return gaussian_dndM_extra(M_arr, z, **GAUSS_PARAMS)
+
+# z_max=10.0 needed to cover the Gaussian centred at z=8.2 (±4 sigma = 9.9)
+# M_lo=1e8 to cover 3 dex below logM0=11 (i.e. logM ~ 8)
+delta_pk_fn, delta_pk_grid, k_dpk, z_dpk = make_delta_pk_callable(
+    dndM_extra_fn, cosmo,
+    k_lo=5e-3, k_hi=50.0, n_k=60,
+    z_lo=0.02, z_max=10.0, n_z=80,
+    M_lo=1e8, M_hi=1e16, n_M=60,
+)
+print(f"  ΔP grid peak: {delta_pk_grid.max():.3e} (Mpc/h)^3 "
+      f"at k={k_dpk[delta_pk_grid.max(axis=1).argmax()]:.2f} h/Mpc")
+
+CL_hm_mod = cl_kappakappa(ell_arr, pk_hm_spline, cosmo, z_max=10.0, n_chi=400,
+                           delta_pk_fn=delta_pk_fn)
+print(f"  Modified halo model C_L range: {CL_hm_mod.min():.3e} – {CL_hm_mod.max():.3e}")
 
 # -------------------------------------------------------------------------
 # 3. Compute exact C_L^{kappakappa} from CAMB
@@ -169,6 +201,11 @@ ax_main.plot(ell_plot,
              scale_cl(ell_plot, CL_hm) * 1e7,
              color='firebrick', lw=2.5, label='Halo model (1h+2h, Limber)')
 
+# Modified halo model (Tinker + Gaussian HMF perturbation)
+ax_main.plot(ell_plot,
+             scale_cl(ell_plot, CL_hm_mod) * 1e7,
+             color='darkorchid', lw=2.5, ls='-.', label='Halo model + Gaussian HMF mod')
+
 # Planck data
 if planck_ok:
     # Mask negative C_L values (noise dominated at high L)
@@ -199,8 +236,13 @@ ax_main.set_ylabel(
     fontsize=13
 )
 ax_main.legend(fontsize=11, loc='lower left')
-ax_main.set_title('CMB Lensing Convergence Power Spectrum: Halo Model vs Data',
-                  fontsize=13)
+gauss_label = (fr"Gaussian mod: $A={GAUSS_PARAMS['A']}$, "
+               fr"$\log M_0={GAUSS_PARAMS['logM0']}$, "
+               fr"$\sigma_{{\log M}}={GAUSS_PARAMS['sigma_logM']}$, "
+               fr"$z_0={GAUSS_PARAMS['z0']}$, "
+               fr"$\sigma_z={GAUSS_PARAMS['sigma_z']}$")
+ax_main.set_title('CMB Lensing Convergence Power Spectrum: Halo Model vs Data\n'
+                  + gauss_label, fontsize=11)
 ax_main.grid(True, alpha=0.3)
 ax_main.tick_params(labelbottom=False)
 
@@ -213,12 +255,15 @@ CL_camb_interp = np.exp(camb_spline(np.log(ell_plot)))
 
 ratio_hm = CL_hm / CL_camb_interp
 ratio_lin_limber = CL_lin / CL_camb_interp
+ratio_hm_mod = CL_hm_mod / CL_camb_interp
 
 ax_ratio.axhline(1.0, color='k', lw=1.5, ls='-', label='CAMB exact')
 ax_ratio.plot(ell_plot, ratio_lin_limber, color='steelblue', lw=2, ls='--',
               label='Linear Limber / CAMB')
 ax_ratio.plot(ell_plot, ratio_hm, color='firebrick', lw=2.5,
               label='Halo model / CAMB linear')
+ax_ratio.plot(ell_plot, ratio_hm_mod, color='darkorchid', lw=2.5, ls='-.',
+              label='Halo model + Gaussian mod / CAMB')
 
 # Planck data ratio
 if planck_ok and mask_pos.sum() > 0:
