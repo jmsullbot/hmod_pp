@@ -91,13 +91,20 @@ print(f"  Gaussian params: {GAUSS_PARAMS}")
 def dndM_extra_fn(M_arr, z):
     return gaussian_dndM_extra(M_arr, z, **GAUSS_PARAMS)
 
-# z_max=10.0 needed to cover the Gaussian centred at z=8.2 (±4 sigma = 9.9)
-# M_lo=1e8 to cover 3 dex below logM0=11 (i.e. logM ~ 8)
+# Custom z grid: coarse away from the Gaussian, dense around its peak.
+# Dense patch around z0=8.2 with dz~0.03 (~14 steps per sigma_z=0.43).
+# Total z range covers 0.02 to 100.
+# M_lo=1e8 to cover 3 dex below logM0=11.
+_z_dpk = np.unique(np.concatenate([
+    np.linspace(0.02, 6.0,  30),    # coarse below peak
+    np.linspace(6.0,  11.0, 170),   # dense around Gaussian (dz~0.03)
+    np.linspace(11.0, 100.0, 30),   # coarse above peak
+]))
 delta_pk_fn, delta_pk_grid, k_dpk, z_dpk = make_delta_pk_callable(
     dndM_extra_fn, cosmo,
     k_lo=5e-3, k_hi=50.0, n_k=60,
-    z_lo=0.02, z_max=10.0, n_z=80,
     M_lo=1e8, M_hi=1e16, n_M=60,
+    z_arr=_z_dpk,
 )
 print(f"  ΔP grid peak: {delta_pk_grid.max():.3e} (Mpc/h)^3 "
       f"at k={k_dpk[delta_pk_grid.max(axis=1).argmax()]:.2f} h/Mpc")

@@ -176,7 +176,8 @@ def cl_kappakappa_linear(ell, pk_lin_spline, cosmo,
 def make_delta_pk_callable(dndM_extra_fn, cosmo,
                            k_lo=5e-3, k_hi=50.0, n_k=60,
                            z_lo=0.02, z_max=5.0, n_z=50,
-                           M_lo=1e10, M_hi=1e16, n_M=60):
+                           M_lo=1e10, M_hi=1e16, n_M=60,
+                           z_arr=None):
     """
     Precompute the extra 1-halo power ΔP(k,z) on a (k, z) grid arising
     from an additional HMF component, then return a fast interpolating callable.
@@ -195,19 +196,24 @@ def make_delta_pk_callable(dndM_extra_fn, cosmo,
     n_k : int
         Number of k points.
     z_lo, z_max : float
-        Redshift grid range.
+        Redshift grid range (ignored when z_arr is provided).
     n_z : int
-        Number of z points.
+        Number of z points (ignored when z_arr is provided).
     M_lo, M_hi : float
         Halo mass integration limits [M_sun/h].
     n_M : int
         Number of mass points.
+    z_arr : 1-D array or None
+        Custom redshift grid (must be strictly increasing). When provided,
+        overrides z_lo, z_max, n_z. Useful for placing dense points around
+        a narrow feature (e.g. a Gaussian at high z) while still covering a
+        wide redshift range.
 
     Returns
     -------
     delta_pk_fn : callable
         delta_pk_fn(k_arr, z_arr) -> array of ΔP values, one per element.
-    delta_pk_grid : 2-D array, shape (n_k, n_z)
+    delta_pk_grid : 2-D array, shape (n_k, len(z_grid))
         Raw precomputed grid [(Mpc/h)^3].
     k_grid, z_grid : 1-D arrays
     """
@@ -215,10 +221,10 @@ def make_delta_pk_callable(dndM_extra_fn, cosmo,
     from scipy.interpolate import RegularGridInterpolator
 
     k_grid = np.geomspace(k_lo, k_hi, n_k)
-    z_grid = np.linspace(z_lo, z_max, n_z)
+    z_grid = np.asarray(z_arr) if z_arr is not None else np.linspace(z_lo, z_max, n_z)
     M_arr  = np.geomspace(M_lo, M_hi, n_M)
 
-    delta_pk_grid = np.zeros((n_k, n_z))
+    delta_pk_grid = np.zeros((n_k, len(z_grid)))
 
     for j, z in enumerate(z_grid):
         rho_m = cosmo.rho_m(z)
