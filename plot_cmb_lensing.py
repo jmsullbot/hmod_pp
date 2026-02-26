@@ -79,11 +79,11 @@ print(f"  Linear C_L range: {CL_lin.min():.3e} – {CL_lin.max():.3e}")
 # -------------------------------------------------------------------------
 # Gaussian parameters centred on the high-z, low-mass population
 GAUSS_PARAMS = dict(
-    A         = 1.3e-2, # amplitude [(Mpc/h)^{-3}]; dn/dM = A*gauss_M*gauss_z / M
+    A         = 1.3,    # amplitude [(Mpc/h)^{-3}]; dn/dM = A*gauss_M*gauss_z / M
     logM0     = 11.0,   # central log10(M_h / (M_sun/h))
     sigma_logM= 1.0,    # width in log10(M) [dex]
     z0        = 8.2,    # central redshift
-    sigma_z   = 0.43,   # width in z
+    sigma_z   = 2.15,   # width in z
 )
 print("Precomputing extra 1-halo power from Gaussian HMF modification...")
 print(f"  Gaussian params: {GAUSS_PARAMS}")
@@ -92,13 +92,13 @@ def dndM_extra_fn(M_arr, z):
     return gaussian_dndM_extra(M_arr, z, **GAUSS_PARAMS)
 
 # Custom z grid: coarse away from the Gaussian, dense around its peak.
-# Dense patch around z0=8.2 with dz~0.03 (~14 steps per sigma_z=0.43).
+# sigma_z=2.15 => 4-sigma range: z0 +/- 4*2.15 = 8.2 +/- 8.6 => [~0, 17].
+# Dense patch from z=0.02 to z=18 with dz~0.08 (~27 steps per sigma_z=2.15).
 # Total z range covers 0.02 to 100.
 # M_lo=1e8 to cover 3 dex below logM0=11.
 _z_dpk = np.unique(np.concatenate([
-    np.linspace(0.02, 6.0,  30),    # coarse below peak
-    np.linspace(6.0,  11.0, 170),   # dense around Gaussian (dz~0.03)
-    np.linspace(11.0, 100.0, 30),   # coarse above peak
+    np.linspace(0.02, 18.0, 230),   # dense around Gaussian (dz~0.08)
+    np.linspace(18.0, 100.0, 30),   # coarse above peak
 ]))
 delta_pk_fn, delta_pk_grid, k_dpk, z_dpk = make_delta_pk_callable(
     dndM_extra_fn, cosmo,
