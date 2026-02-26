@@ -79,7 +79,7 @@ print(f"  Linear C_L range: {CL_lin.min():.3e} – {CL_lin.max():.3e}")
 # -------------------------------------------------------------------------
 # Gaussian parameters centred on the high-z, low-mass population
 GAUSS_PARAMS = dict(
-    A         = 0.3,    # peak amplitude [(Mpc/h)^{-3}] per unit log10M per unit z
+    A         = 1.3e-5, # amplitude [(Mpc/h)^{-3}]; dn/dM = A*gauss_M*gauss_z / M
     logM0     = 11.0,   # central log10(M_h / (M_sun/h))
     sigma_logM= 1.0,    # width in log10(M) [dex]
     z0        = 8.2,    # central redshift
@@ -200,7 +200,7 @@ _gauss_M_fac = np.exp(-0.5 * ((_lM - GAUSS_PARAMS['logM0'])
 dndM_gauss_vz = (GAUSS_PARAMS['A'] * _gauss_M_fac
                  * np.exp(-0.5 * ((z_hmf - GAUSS_PARAMS['z0'])
                                   / GAUSS_PARAMS['sigma_z'])**2)
-                 / (M_fixed * np.log(10.0)))
+                 / M_fixed)
 dndM_mod_vz = dndM_tinker_vz + dndM_gauss_vz
 
 # -------------------------------------------------------------------------
