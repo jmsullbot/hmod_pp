@@ -228,6 +228,45 @@ except FileNotFoundError:
     planck_ok = False
 
 # -------------------------------------------------------------------------
+# 4b. Load ACT DR6 lensing bandpowers (Qu et al. 2023, arXiv:2304.05202)
+# -------------------------------------------------------------------------
+print("Loading ACT DR6 lensing bandpowers...")
+try:
+    import act_dr6_lenslike as alike
+    # Download data to the package directory if not already present
+    try:
+        alike.get_data()
+    except Exception:
+        pass  # Falls through to load_data which will raise FileNotFoundError if missing
+    # lens_only=True -> use CMB-marginalised covariance (correct for lensing-only plot)
+    d_act   = alike.load_data('act_baseline', lens_only=True, like_corrections=False)
+
+    y_act    = d_act['full_data_binned_clkk_act']  # C_L^{kk}, dimensionless, no L/2pi factors
+    b_act    = d_act['full_binmat_act']             # binning matrix, shape (nbins_tot, n_ells)
+    cov_act  = d_act['full_act_cov']               # CMB-marginalised covariance, (nbins_tot, nbins_tot)
+
+    ls_act    = np.arange(b_act.shape[1])
+    L_eff_act = b_act @ ls_act                     # effective L for each bin
+    sigma_act = np.sqrt(np.diag(cov_act))          # 1-sigma errors from diagonal
+
+    # Baseline likelihood range: skip leading 2 and trailing 6 bins (~L = 40-763)
+    act_s, act_e = 2, -6
+    L_bl   = L_eff_act[act_s:act_e]
+    y_bl   = y_act[act_s:act_e]
+    sig_bl = sigma_act[act_s:act_e]
+
+    print(f"  Loaded {len(y_bl)} ACT DR6 baseline bandpowers, "
+          f"L=[{L_bl.min():.0f}, {L_bl.max():.0f}]")
+    act_ok = True
+except FileNotFoundError as e:
+    print(f"  ACT DR6 data not found: {e}")
+    print("  To download: python3 -c 'import act_dr6_lenslike; act_dr6_lenslike.get_data()'")
+    act_ok = False
+except Exception as e:
+    print(f"  ACT DR6 load failed: {e}")
+    act_ok = False
+
+# -------------------------------------------------------------------------
 # 5. Make the comparison plot
 # -------------------------------------------------------------------------
 print("Making plot...")
@@ -286,6 +325,17 @@ if planck_ok:
             fmt='v', color='darkorange', ms=6, alpha=0.5, zorder=10
         )
 
+# ACT DR6 data (baseline range, L ~ 40-763)
+if act_ok:
+    ax_main.errorbar(
+        L_bl,
+        scale_cl(L_bl, y_bl) * 1e7,
+        yerr=scale_cl(L_bl, sig_bl) * 1e7,
+        fmt='s', color='forestgreen', ms=5, lw=1.5, capsize=3,
+        label='ACT DR6 lensing (arXiv:2304.05202)',
+        zorder=11
+    )
+
 ax_main.set_xscale('log')
 ax_main.set_yscale('log')
 ax_main.set_xlim(8, 2100)
@@ -334,6 +384,15 @@ if planck_ok and mask_pos.sum() > 0:
     ax_ratio.errorbar(L_eff[mask_pos], ratio_planck, yerr=ratio_planck_err,
                       fmt='o', color='darkorange', ms=5, lw=1.5, capsize=3,
                       label='Planck / CAMB linear')
+
+# ACT DR6 data ratio
+if act_ok:
+    CL_camb_at_act = np.exp(camb_spline(np.log(L_bl)))
+    ratio_act     = y_bl / CL_camb_at_act
+    ratio_act_err = sig_bl / CL_camb_at_act
+    ax_ratio.errorbar(L_bl, ratio_act, yerr=ratio_act_err,
+                      fmt='s', color='forestgreen', ms=4, lw=1.5, capsize=3,
+                      label='ACT DR6 / CAMB linear')
 
 ax_ratio.axhspan(0.85, 1.15, alpha=0.1, color='gray')
 ax_ratio.set_xscale('log')
