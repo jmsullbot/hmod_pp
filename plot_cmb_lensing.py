@@ -233,11 +233,15 @@ except FileNotFoundError:
 print("Loading ACT DR6 lensing bandpowers...")
 try:
     import act_dr6_lenslike as alike
-    # Download data to the package directory if not already present
+    import os as _os
+    # get_data() changes cwd on download failure without restoring it, so we guard it.
+    _orig_cwd = _os.getcwd()
     try:
         alike.get_data()
     except Exception:
-        pass  # Falls through to load_data which will raise FileNotFoundError if missing
+        pass
+    finally:
+        _os.chdir(_orig_cwd)
     # lens_only=True -> use CMB-marginalised covariance (correct for lensing-only plot)
     d_act   = alike.load_data('act_baseline', lens_only=True, like_corrections=False)
 
