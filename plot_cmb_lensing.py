@@ -212,8 +212,10 @@ try:
     # Columns: bin, L_min, L_max, L_av, PP (C_L^kappakappa), Error, Ahat
     # The PP column already stores C_L^{kappakappa} directly.
     L_eff = bp_data[:, 3]
-    C_kk_planck   = bp_data[:, 4]   # C_L^{kappakappa}  [dimensionless]
-    sigma_kk_planck = bp_data[:, 5] # 1-sigma error on C_L^{kappakappa}
+    # Column 4 (PP) stores [L(L+1)]^2/(2pi) * C_L^{phiphi} = (2/pi) * C_L^{kk}.
+    # Convert to C_L^{kappakappa} by multiplying by pi/2.
+    C_kk_planck   = bp_data[:, 4] * (np.pi / 2.0)   # C_L^{kappakappa}
+    sigma_kk_planck = bp_data[:, 5] * (np.pi / 2.0) # 1-sigma error on C_L^{kk}
 
     # Load covariance matrix (already in C_L^{kk} units)
     cov_raw = np.loadtxt("planck2018_lensing_aggressive_cov.dat")
